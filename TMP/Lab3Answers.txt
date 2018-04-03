@@ -1,0 +1,130 @@
+1. The priority inversion problem could cause that a higher-priority process needs to wait for the completion of a lower-priority process.
+	1. Priority inheritance is one approach to address this issue. Please give another approach and briefly describe its idea.
+		
+		Answer- Another approach to solve the problem of priority inversion is to use priority ceiling approach. The idea is similar to priority inheritance protocol such that the priority of the process holding the lock,say P1, has to modified such that it is larger than the priorities of all the processes holding that lock. If we modify the priorty of the process P1 in this way, no other process having priority less than the new priority of P1 can be scheduled before P1 releases the lock.
+
+		Shared resource Ceiling priority - max(Priority of processes which may lock/request this resource)
+
+		Access for shared resource S is granted P1 if - 
+		i. No process is holding S, AND
+		ii. Priority of P1 is higher than the ceiling of S = max(priority ceilings of all the resources allocated to process other than P1) 
+
+	2. Design a test case to show that your approach can address the priority inversion problem. You should compare the results that derived from the original XINU implementation (use semaphore) and that derived from your implementation (use readers/writer locks). Put your results in Lab3Answers.txt and your test case program (name it task1.c) in both ./sys and ./TMP
+
+	Output:
+
+
+			Task: comapare the basic priority inheritence with semaphore implementation
+			
+			
+			Semaphore implementation: Priority inversion problem
+			-start SEM writer. lock granted to write (prio 20)
+			  Sem writer: to acquire semaphore
+			  Sem writer: acquired semaphore, starts writing
+			    Sem writer
+			    Sem writer
+			    Sem writer
+			-start SEM reader A. reader A(prio 30) blocked on the lock
+			  Sem reader A: to acquire semaphore
+			-start SEM reader B. reader B(prio 25) should not get lock before reader A(prio 30) and should be blocked
+			  Sem reader B: to acquire semaphore
+			  Sem reader B: acquired semaphore
+			    Sem reader B
+			    Sem reader B
+			    Sem reader B
+			    	:
+			    	:
+			    	:
+			    Sem reader B
+			    Sem reader B
+			    Sem reader B
+			    Sem reader B
+			  Sem reader B: to release semaphore
+			    Sem writer
+			    Sem writer
+			    Sem writer
+			    	:
+			    	:
+			    	:
+			    Sem writer
+			    Sem writer
+			    Sem writer
+			    Sem writer
+			  Sem writer: to release semaphore
+			  Sem reader A: acquired semaphore
+			  Sem reader A: to release semaphore
+			
+			
+			Priority inheritance implementation: Priority inversion problem solved!!
+			-start PI writer. lock granted to write (prio 20)
+			  PI writer: to acquire lock
+			  PI writer: acquired lock, starts writing
+			    PI writer
+			    PI writer
+			    PI writer
+			    PI writer
+			    PI writer
+			    PI writer
+			    PI writer
+			-start PI reader A. reader A(prio 30) blocked on the lock
+			  PI reader A: to acquire lock
+			    PI writer
+			    PI writer
+			    PI writer
+			    	:
+			    	:
+			    	:
+			    PI writer
+			    PI writer
+			    PI writer
+			    PI writer
+			  PI writer: to release lock
+			  PI reader A: acquired lock
+			  PI reader A: to release lock
+			-start PI reader B. reader B(prio 25) should not get lock before reader A(prio 30) and should be blocked
+			  PI reader B: to acquire lock
+			  PI reader B: acquired lock
+			    PI reader B
+			    PI reader B
+			    PI reader B
+			    	:
+			    	:
+			    	:
+			    PI reader B
+			    PI reader B
+			    PI reader B
+			    PI reader B
+			  PI reader B: to release lock
+
+
+	If you see the semaphore implementation, writer(prio 20) printed twice and after that reader A with higher priority(prio 30) got blocked. But later reader B(prio 25) acquired lock and context switch could not happen in between as reader B had maximum priority in ready queue. After reader B died writer could continue. This is the priority inversion problem as reader B is starting even though reader A(prio 30) with higher priority is still waiting to get lock which itself starts waiting in ready queue till reader B completes. Reader B stole a lot of CPU cycles which should have been given to reader A (and hence writer should be run before reader A).
+
+	If you see the priority inheritance implementation, writer(prio 20) gets lock first then reader A(prio 30) gets blocked. After that reader B(prio 25) is created but it has to wait in ready queue till reader A finished. So once writer releases the lock, reader A executes followed by reader B.
+
+
+2. Synchronization is a quite complex issue in operating systems. To show your understanding about process synchronization, you are asked to point out a reader/writer synchronization issue in this pesudo-code: task2_sync_issue.c. Multiple reader threads can execute this code concurrently by calling do_update. All the variables starting with global_ are global variables. You are asked to describe the potential issue caused by the incorrect synchronization and point out at least one possible thread interleaving that would trigger the problem. Put your answer in Lab3Answers.txt mentioned above.
+
+
+In the psuedocode, since there are multiple readers in do_update(), they can aquire lock and simultaneously enter the try_update() function. Semaphore in try update is initialized to 10. This implies that 10 readers can invoke the buffer_add() function. Now lets us assume we have 2 readers R1 and R2 in buffer_add() function and they are trying to invoke memcpy. R1 invokes memcpy and after it is done copying size bytes from text to buf->buf at buf->len index OS gets a timer interrupt. So context is switched to R2 which copies size bytes from text to index buf->len again where R1 copied overwriting R1's information instead of appending. So we lose the copy of R1's text/time in buf->buf. Since this buf->buf is a global buffer shared by all threads, this will give unexpected results. Possible interleaving - 
+
+Instructions - 
+    memcpy (buf->buf + buf->len, txt, size);   //S1
+    buf->len += size;						   //S2
+
+Example - global_buf.len=4
+		  global_buf.buf="ABCD"
+
+Threads - R1 and R2
+
+Interleaving - 
+R1(S1)     ---> global_buf.buf="ABCDR1"   global_buf.len=4
+interrupt
+R2(S1)	   ---> global_buf.buf="ABCDR2"   global_buf.len=4
+R2(S2)	   ---> global_buf.buf="ABCDR2"   global_buf.len=6
+interrupt  
+R1(S2)	   ---> global_buf.buf="ABCDR2"   global_buf.len=8
+
+As we can see in the example, R2 overwrote R1's data and hence buffer will also have some garbage data of size 2. Final global_buf.buf="ABCDR2xx".
+
+
+
